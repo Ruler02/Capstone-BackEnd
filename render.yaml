@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: sigap-bnpb-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: APP_ENV
+        value: production
+      - key: ASR_BACKEND
+        value: whisper
+      - key: NER_BACKEND
+        value: transformers
+      - key: GEOCODER_BACKEND
+        value: google
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: WHATSAPP_PROVIDER
+        value: log
+      - key: STORAGE_BACKEND
+        value: supabase
+      - key: ALLOWED_ORIGINS
+        sync: false
