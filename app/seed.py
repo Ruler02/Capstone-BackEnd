@@ -15,6 +15,8 @@ DEMO_USERS = [
     {"nama": "Pimpinan BNPB", "email": "pimpinan@sigap.id", "role": "pimpinan", "instansi_daerah": None},
     {"nama": "Tim BPBD Surabaya", "email": "bpbd.surabaya@sigap.id", "role": "bpbd", "instansi_daerah": "BPBD Surabaya"},
     {"nama": "Tim BPBD Malang", "email": "bpbd.malang@sigap.id", "role": "bpbd", "instansi_daerah": "BPBD Malang"},
+    {"nama": "Tim BPBD Sidoarjo", "email": "bpbd.sidoarjo@sigap.id", "role": "bpbd", "instansi_daerah": "BPBD Sidoarjo"},
+    {"nama": "Tim BPBD Mojokerto", "email": "bpbd.mojokerto@sigap.id", "role": "bpbd", "instansi_daerah": "BPBD Mojokerto"},
 ]
 
 

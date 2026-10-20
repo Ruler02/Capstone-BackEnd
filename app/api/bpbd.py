@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.deps import require_role
+from app.models.entitas import EntitasNer
 from app.models.kasus import Kasus
 from app.models.laporan_lapangan import LaporanLapangan
 from app.models.penugasan import Penugasan
@@ -14,6 +15,7 @@ from app.models.penugasan_unit import PenugasanUnit
 from app.models.user import User
 from app.schemas.bpbd import BpbdTaskOut, FieldReportOut, TaskDetail, TaskStatusUpdate
 from app.services.storage import build_storage
+from app.services.summary import bencana_dan_lokasi
 
 router = APIRouter(prefix="/api/v1/bpbd", tags=["bpbd"])
 bpbd_only = Depends(require_role("bpbd"))
@@ -32,19 +34,30 @@ def _unit(db: Session, id_penugasan: int, user_id: int) -> PenugasanUnit:
 def list_tasks(user: User = Depends(require_role("bpbd")), db: Session = Depends(get_db)):
     rows = db.execute(
         select(PenugasanUnit, Penugasan)
+        .options(selectinload(Penugasan.kasus))
         .join(Penugasan, PenugasanUnit.id_penugasan == Penugasan.id_penugasan)
         .where(PenugasanUnit.id_bpbd == user.id_user)
     ).all()
-    return [
-        BpbdTaskOut(
-            id_penugasan=unit.id_penugasan,
-            id_kasus=task.id_kasus,
-            instruksi=task.instruksi,
-            status_tugas=unit.status_tugas,
-            tanggal_update=unit.tanggal_update,
+
+    tasks = []
+    for unit, task in rows:
+        entities = db.scalars(
+            select(EntitasNer).where(EntitasNer.id_laporan == task.kasus.id_laporan)
+        ).all()
+        bencana, lokasi = bencana_dan_lokasi(list(entities))
+        tasks.append(
+            BpbdTaskOut(
+                id_penugasan=unit.id_penugasan,
+                id_kasus=task.id_kasus,
+                instruksi=task.instruksi,
+                status_tugas=unit.status_tugas,
+                tanggal_update=unit.tanggal_update,
+                bencana=bencana,
+                lokasi=lokasi,
+                status_kasus=task.kasus.status_kasus,
+            )
         )
-        for unit, task in rows
-    ]
+    return tasks
 
 
 @router.get("/tasks/{id_penugasan}", response_model=TaskDetail, dependencies=[bpbd_only])

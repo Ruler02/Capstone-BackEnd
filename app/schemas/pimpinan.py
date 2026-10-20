@@ -11,6 +11,8 @@ class DashboardStats(BaseModel):
     kasus_ditangani: int
     kasus_belum_ditangani: int
     rekap_bulanan: list[dict]
+    laporan_terkini: list[dict] = []
+    kasus_terkini: list[dict] = []
 
 
 class CreateAssignment(BaseModel):
@@ -41,3 +43,5 @@ class TaskProgress(BaseModel):
     instruksi: str
     units: list[UnitProgress]
     riwayat: list[FieldReportOut]
+    bencana: str = ""
+    lokasi: str = ""

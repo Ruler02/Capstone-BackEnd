@@ -14,6 +14,9 @@ class AdminReportSummary(BaseModel):
     status_proses: str
     tanggal_lapor: datetime
     cuplikan: str = ""
+    bencana: str = ""
+    lokasi: str = ""
+    phone_pelapor: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -48,6 +51,13 @@ class CaseOut(BaseModel):
     tingkat_urgensi: str
     status_kasus: str
     tanggal_eskalasi: datetime
+    bencana: str = ""
+    lokasi: str = ""
+    status_verifikasi: str | None = None
+    id_penugasan: int | None = None
+    units: list[dict] = []
+    penutupan_status: str | None = None
+    nama_unit: str = ""
 
     model_config = {"from_attributes": True}
 
@@ -58,6 +68,8 @@ class TaskSummary(BaseModel):
     instruksi: str
     status_kasus: str
     units: list[dict]
+    bencana: str = ""
+    lokasi: str = ""
 
 
 class ClosureDecision(BaseModel):

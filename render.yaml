@@ -1,9 +1,19 @@
+# Backend SIGAP — Render (plan free tier)
+#
+# Cloudflare Pages TIDAK bisa menjalankan backend Python (static-only),
+# jadi backend tetap di-host terpisah. Frontend di Cloudflare Pages,
+# database di Neon PostgreSQL, file di Cloudflare R2.
+#
+# Catatan free tier Render:
+#   - `plan: free` akan tidur setelah idle; request pertama jadi lambat (~30s).
+#   - Model Whisper/Transformers TIDAK muat di RAM free tier, jadi
+#     ASR/NER tetap `fake`. Naikkan ke plan berbayar saat model siap.
 services:
   - type: web
     name: sigap-bnpb-api
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     healthCheckPath: /healthz
     envVars:
       - key: DATABASE_URL
@@ -13,16 +23,24 @@ services:
       - key: APP_ENV
         value: production
       - key: ASR_BACKEND
-        value: whisper
+        value: fake
       - key: NER_BACKEND
-        value: transformers
+        value: fake
       - key: GEOCODER_BACKEND
-        value: google
+        value: fake
       - key: GOOGLE_MAPS_API_KEY
         sync: false
       - key: WHATSAPP_PROVIDER
         value: log
       - key: STORAGE_BACKEND
-        value: supabase
+        value: r2
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_BUCKET
+        value: sigap-media
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
       - key: ALLOWED_ORIGINS
         sync: false

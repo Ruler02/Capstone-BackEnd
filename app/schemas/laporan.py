@@ -51,3 +51,5 @@ class MapPoint(BaseModel):
     latitude: float
     longitude: float
     tanggal_lapor: datetime
+    bencana: str = ""
+    status_kasus: str | None = None

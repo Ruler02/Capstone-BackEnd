@@ -11,6 +11,9 @@ class BpbdTaskOut(BaseModel):
     instruksi: str
     status_tugas: str
     tanggal_update: datetime
+    bencana: str = ""
+    lokasi: str = ""
+    status_kasus: str = ""
 
 
 class TaskStatusUpdate(BaseModel):

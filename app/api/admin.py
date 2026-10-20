@@ -11,6 +11,7 @@ from app.models.kasus import Kasus
 from app.models.laporan import Laporan
 from app.models.penugasan import Penugasan
 from app.models.user import User
+from app.models.verifikasi_penutupan import VerifikasiPenutupan
 from app.schemas.admin import (
     AdminReportDetail,
     AdminReportSummary,
@@ -24,6 +25,7 @@ from app.schemas.admin import (
 from app.schemas.laporan import EntityOut
 from app.services.closure import verify_closure
 from app.services.pipeline import run_pipeline
+from app.services.summary import bencana_dan_lokasi
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 admin_only = Depends(require_role("admin"))
@@ -41,21 +43,31 @@ def _entity_out(entity: EntitasNer) -> EntityOut:
 
 @router.get("/reports", response_model=list[AdminReportSummary], dependencies=[admin_only])
 def list_reports(status: str | None = None, db: Session = Depends(get_db)):
-    query = select(Laporan).order_by(Laporan.tanggal_lapor.desc())
+    query = (
+        select(Laporan)
+        .options(selectinload(Laporan.entitas))
+        .order_by(Laporan.tanggal_lapor.desc())
+    )
     if status:
         query = query.where(Laporan.status_verifikasi == status)
     reports = db.scalars(query).all()
-    return [
-        AdminReportSummary(
-            id_laporan=r.id_laporan,
-            sumber_input=r.sumber_input,
-            status_verifikasi=r.status_verifikasi,
-            status_proses=r.status_proses,
-            tanggal_lapor=r.tanggal_lapor,
-            cuplikan=(r.konten_teks or "")[:160],
+    summaries = []
+    for r in reports:
+        bencana, lokasi = bencana_dan_lokasi(list(r.entitas))
+        summaries.append(
+            AdminReportSummary(
+                id_laporan=r.id_laporan,
+                sumber_input=r.sumber_input,
+                status_verifikasi=r.status_verifikasi,
+                status_proses=r.status_proses,
+                tanggal_lapor=r.tanggal_lapor,
+                cuplikan=(r.konten_teks or "")[:160],
+                bencana=bencana,
+                lokasi=lokasi,
+                phone_pelapor=r.phone_pelapor,
+            )
         )
-        for r in reports
-    ]
+    return summaries
 
 
 @router.get("/reports/{id_laporan}", response_model=AdminReportDetail, dependencies=[admin_only])
@@ -130,8 +142,58 @@ def reprocess_report(id_laporan: str, db: Session = Depends(get_db)):
 
 
 @router.get("/cases", response_model=list[CaseOut], dependencies=[admin_only])
-def list_cases(db: Session = Depends(get_db)):
-    return db.scalars(select(Kasus).order_by(Kasus.tanggal_eskalasi.desc())).all()
+def list_cases(db: Session = Depends(get_db)) -> list[CaseOut]:
+    cases = db.scalars(
+        select(Kasus)
+        .options(
+            selectinload(Kasus.laporan).selectinload(Laporan.entitas),
+            selectinload(Kasus.penugasan).selectinload(Penugasan.units),
+        )
+        .order_by(Kasus.tanggal_eskalasi.desc())
+    ).all()
+
+    results = []
+    for case in cases:
+        bencana, lokasi = bencana_dan_lokasi(list(case.laporan.entitas))
+        penugasan = case.penugasan
+        penutupan_status = None
+        unit_ids = []
+        if penugasan:
+            verifikasi = db.scalars(
+                select(VerifikasiPenutupan).where(
+                    VerifikasiPenutupan.id_penugasan == penugasan.id_penugasan
+                )
+            ).first()
+            penutupan_status = verifikasi.status_verifikasi if verifikasi else None
+            unit_ids = [u.id_bpbd for u in penugasan.units]
+
+        unit_names = {}
+        if unit_ids:
+            for user in db.scalars(
+                select(User).where(User.id_user.in_(unit_ids))
+            ):
+                unit_names[user.id_user] = user.nama
+
+        results.append(
+            CaseOut(
+                id_kasus=case.id_kasus,
+                id_laporan=case.id_laporan,
+                tingkat_urgensi=case.tingkat_urgensi,
+                status_kasus=case.status_kasus,
+                tanggal_eskalasi=case.tanggal_eskalasi,
+                bencana=bencana,
+                lokasi=lokasi,
+                status_verifikasi=case.laporan.status_verifikasi,
+                id_penugasan=penugasan.id_penugasan if penugasan else None,
+                units=[
+                    {"id_bpbd": u.id_bpbd, "status_tugas": u.status_tugas}
+                    for u in (penugasan.units if penugasan else [])
+                ],
+                penutupan_status=penutupan_status,
+                nama_unit=", ".join(unit_names.values()),
+            )
+        )
+    return results
 
 
 @router.post("/cases", response_model=CaseOut, dependencies=[admin_only])
@@ -161,20 +223,32 @@ def escalate_case(
 
 @router.get("/tasks", response_model=list[TaskSummary], dependencies=[admin_only])
 def list_tasks(db: Session = Depends(get_db)):
-    tasks = db.scalars(select(Penugasan).options(selectinload(Penugasan.units))).all()
-    return [
-        TaskSummary(
-            id_penugasan=t.id_penugasan,
-            id_kasus=t.id_kasus,
-            instruksi=t.instruksi,
-            status_kasus=t.kasus.status_kasus,
-            units=[
-                {"id_bpbd": u.id_bpbd, "status_tugas": u.status_tugas}
-                for u in t.units
-            ],
+    tasks = db.scalars(
+        select(Penugasan).options(selectinload(Penugasan.units))
+    ).all()
+    summaries = []
+    for t in tasks:
+        entities = db.scalars(
+            select(EntitasNer).where(
+                EntitasNer.id_laporan == t.kasus.id_laporan
+            )
+        ).all()
+        bencana, lokasi = bencana_dan_lokasi(list(entities))
+        summaries.append(
+            TaskSummary(
+                id_penugasan=t.id_penugasan,
+                id_kasus=t.id_kasus,
+                instruksi=t.instruksi,
+                status_kasus=t.kasus.status_kasus,
+                units=[
+                    {"id_bpbd": u.id_bpbd, "status_tugas": u.status_tugas}
+                    for u in t.units
+                ],
+                bencana=bencana,
+                lokasi=lokasi,
+            )
         )
-        for t in tasks
-    ]
+    return summaries
 
 
 @router.post("/tasks/{id_penugasan}/verify-closure", dependencies=[admin_only])

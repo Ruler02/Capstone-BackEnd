@@ -11,7 +11,7 @@ from fastapi import (
     status,
 )
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import SessionLocal, get_db
 from app.core.config import get_settings
@@ -130,6 +130,7 @@ def report_detail(id_laporan: str, db: Session = Depends(get_db)) -> ReportDetai
 def map_incidents(db: Session = Depends(get_db)) -> list[MapPoint]:
     rows = db.execute(
         select(EntitasNer, Laporan)
+        .options(selectinload(Laporan.entitas), selectinload(Laporan.kasus))
         .join(Laporan, EntitasNer.id_laporan == Laporan.id_laporan)
         .where(
             EntitasNer.jenis_entitas == "Location",
@@ -137,14 +138,27 @@ def map_incidents(db: Session = Depends(get_db)) -> list[MapPoint]:
             Laporan.status_verifikasi == "terverifikasi",
         )
     ).all()
-    return [
-        MapPoint(
-            id_laporan=laporan.id_laporan,
-            jenis_entitas=entity.jenis_entitas,
-            nilai_teks=entity.nilai_teks,
-            latitude=entity.latitude,
-            longitude=entity.longitude,
-            tanggal_lapor=laporan.tanggal_lapor,
+
+    points = []
+    for entity, laporan in rows:
+        bencana = next(
+            (
+                e.nilai_teks
+                for e in laporan.entitas
+                if e.jenis_entitas == "Disaster"
+            ),
+            "",
         )
-        for entity, laporan in rows
-    ]
+        points.append(
+            MapPoint(
+                id_laporan=laporan.id_laporan,
+                jenis_entitas=entity.jenis_entitas,
+                nilai_teks=entity.nilai_teks,
+                latitude=entity.latitude,
+                longitude=entity.longitude,
+                tanggal_lapor=laporan.tanggal_lapor,
+                bencana=bencana,
+                status_kasus=laporan.kasus.status_kasus if laporan.kasus else None,
+            )
+        )
+    return points

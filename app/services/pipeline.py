@@ -1,6 +1,8 @@
 """Orkestrasi Audio/Teks → ASR → preprocessing → NER → geocoding → notif."""
 
+import os
 import re
+import tempfile
 from pathlib import Path
 
 from sqlalchemy import delete
@@ -13,6 +15,7 @@ from app.services.asr import AsrEngine, build_asr
 from app.services.geocoder import Geocoder, build_geocoder
 from app.services.ner import NerEngine, build_ner
 from app.services.notifier import Notifier, build_notifier
+from app.services.storage import build_storage
 
 
 def preprocess_text(text: str) -> str:
@@ -43,9 +46,25 @@ def run_pipeline(
 
     try:
         if laporan.sumber_input == "audio":
-            if not laporan.audio_path or not Path(laporan.audio_path).exists():
+            if not laporan.audio_path:
                 raise FileNotFoundError("File audio laporan tidak ditemukan")
-            laporan.konten_teks = asr.transcribe(laporan.audio_path)
+            audio_path = Path(laporan.audio_path)
+            temporary_path: Path | None = None
+            if not audio_path.exists():
+                storage = build_storage(settings)
+                # Bucket persisten menyimpan path `r2://`/`supabase://`; unduh
+                # dulu ke file sementara sebelum ASR membacanya.
+                if not hasattr(storage, "download"):
+                    raise FileNotFoundError("File audio laporan tidak ditemukan")
+                handle, temp_name = tempfile.mkstemp(suffix=audio_path.suffix)
+                os.close(handle)
+                temporary_path = Path(temp_name)
+                audio_path = storage.download(laporan.audio_path, temporary_path)
+            try:
+                laporan.konten_teks = asr.transcribe(str(audio_path))
+            finally:
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
 
         if not laporan.konten_teks or not laporan.konten_teks.strip():
             raise ValueError("Konten teks laporan kosong")

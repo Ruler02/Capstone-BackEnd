@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     media_root: str = "./media"
     supabase_url: str = ""
     supabase_storage_bucket: str = "media"
+    supabase_service_role_key: str = ""
+    r2_account_id: str = ""
+    r2_bucket: str = "sigap-media"
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
 
     allowed_origins: str = "http://localhost:5173,http://localhost:3000"
 
