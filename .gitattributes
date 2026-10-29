@@ -1,0 +1,4 @@
+# Checkpoint model NER besar dikirim lewat Git LFS.
+# GitHub menolak file >100 MB tanpa LFS, dan HF Spaces butuh file ini ada di
+# repo agar `Dockerfile` bisa melakukan COPY folder model.
+*.pt filter=lfs diff=lfs merge=lfs -text

@@ -1,3 +1,9 @@
+# Index tambahan: hanya untuk torch. PyPI default menarik paket CUDA
+# (±2-3 GB) yang membuat image Hugging Face Spaces melebihi batas build.
+# Versi "+cpu" hanya cocok dengan wheel dari index ini, jadi instalasi
+# tetap paket CPU tanpa tergantung konfigurasi mesin lokal.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 fastapi>=0.115
 uvicorn[standard]>=0.30
 sqlalchemy>=2.0
@@ -12,3 +18,8 @@ psycopg[binary]>=3.2
 boto3>=1.34
 pytest>=8.3
 alembic>=1.13
+
+# Di-pin ke versi yang sudah teruji pada suite 47 test dan uji inferensi
+# terhadap checkpoint BERT-CRF (label BIO + CRF decode).
+transformers==5.20.2
+torch==2.14.1+cpu

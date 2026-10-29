@@ -7,21 +7,25 @@ Tanggal: 2026-10-19
 | Komponen | Layanan | Alasan |
 |---|---|---|
 | Frontend | **Cloudflare Pages** | Static build Vite, gratis, preview per branch |
-| Backend API | **Render (Docker)** | FastAPI butuh proses Python yang hidup — Pages static-only tidak bisa |
+| Backend API + NER | **Hugging Face Spaces (Docker SDK)** | Bisa menjalankan Docker + model NER BERT-CRF; RAM jauh lebih besar dari Render Free |
 | Database | **Neon PostgreSQL** | Gratis, autoscaling, branching per preview |
 | File (audio/foto) | **Cloudflare R2** | Persisten di luar container, kompatibel S3 |
-| NER / ASR | **`fake`** | Model asli tidak muat di free tier; menyusul setelah model siap |
+| NER / ASR | **NER: `transformers` (model tim)** · **ASR: `fake`** | Model NER sudah dilatih dan dipakai; Whisper masih `fake` karena model ASR belum siap |
 
 Kenapa bukan Cloudflare penuh: Workers RAM 128 MB dan CPU 10 ms (free) /
 1 GB dan 5 mnt (berbayar). NER Indonesia fine-tuned butuh ratusan MB RAM.
 SQLAlchemy + psycopg native juga tidak jalan di Workers. Karena itu backend
-tetap Python di Render.
+tetap Python di Docker.
+
+Kenapa bukan Render: Render Free hanya menyediakan 512 MB RAM, sedangkan
+BERT-base (±506 MB checkpoint) plus torch/transformers saat inferensi butuh
+beberapa kali lipat angka itu. HF Spaces Docker memberi ruang yang cukup.
 
 ## Prasyarat sebelum mulai
 
 - Akun Cloudflare (Pages + R2)
 - Akun Neon
-- Akun Render
+- Akun Hugging Face (untuk Spaces Docker)
 - Kode terpush ke GitHub (`Ruler02/Capstone-BackEnd` + repo frontend)
 
 ---
@@ -30,10 +34,21 @@ tetap Python di Render.
 
 1. Buat project → pilih region `ap-southeast-1` (dekat pengguna Indonesia).
 2. Salin connection string (mode **Pooled** / endpoint pooler, bukan direct).
-   Format: `postgresql://neondb_owner.np:<PASSWORD>@ep-xxx.<region>.neon.tech/neondb?sslmode=require`
-3. Simpan `?sslmode=require` — Neon menolak koneksi tanpa TLS.
-4. Catat `neon.tech` ini *bukan* hostname lama `supabase.co` yang ternyata
+3. **Tambahkan prefiks driver `+psycopg`.** Neon memberi string
+   `postgresql://...`, tetapi aplikasi hanya memasang driver **psycopg3**
+   (bukan psycopg2), jadi SQLAlchemy tidak akan menemukan driver dan startup
+   gagal. Format yang benar:
+
+   `postgresql+psycopg://user:pass@ep-xxx.neon.tech/neondb?sslmode=require`
+
+4. Simpan `?sslmode=require` — Neon menolak koneksi tanpa TLS.
+5. Catat `neon.tech` ini *bukan* hostname lama `supabase.co` yang ternyata
    sudah tidak ada.
+6. **Rotasi password Neon sebelum dipakai produksi.** Kalau connection string
+   pernah dibagikan lewat chat, email, atau commit, anggap password itu
+   bocor: Dashboard → project → **Reset password** → pakai string baru
+   hanya di Space Secret dan file lokal yang gitignored (`.neon_url`).
+   Jangan pernah menulis password baru ke repo atau chat.
 
 ### Menjalankan migrasi
 
@@ -86,30 +101,73 @@ presigned belum ada di kode.
 
 ---
 
-## Tahap 3 — Render (backend)
+## Tahap 3 — Hugging Face Spaces (backend)
 
-1. New → Web Service → connect repo GitHub `Ruler02/Capstone-BackEnd`.
-2. Render membaca `render.yaml` di root. Runtime Docker, health `/healthz`.
-3. Environment variables yang harus diisi (lihat `render.yaml`):
+Space memakai **Docker SDK**. `README.md` sudah dibekali frontmatter
+`sdk: docker` dan `app_port: 7860`.
 
-| Key | Nilai |
-|---|---|
-| `DATABASE_URL` | dari Neon (pooled, `sslmode=require`) |
-| `SECRET_KEY` | biarkan Render `generateValue` |
-| `ALLOWED_ORIGINS` | URL Pages, contoh `https://sigap.pages.dev` |
-| `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | dari tahap 2 |
-
-4. Build command otomatis dari Dockerfile. Start command:
+1. Buat Space baru → **Docker** → connect repository
+   `Ruler02/Capstone-BackEnd`.
+2. HF membaca `Dockerfile` di root. Container wajib mendengarkan
+   `0.0.0.0:$PORT`; CMD sudah benar:
    `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+3. Environment variable: **Secret** (tidak pernah dicetak/dikirim) vs
+   **Variable** (nilai non-rahasia).
 
-### Batasan free tier yang harus diketahui
+| Tipe | Key | Nilai |
+|---|---|---|
+| Secret | `DATABASE_URL` | dari Neon (pooled, `postgresql+psycopg://`, `sslmode=require`) |
+| Secret | `SECRET_KEY` | string acak panjang, dibuat sekali di dashboard |
+| Secret | `ALLOWED_ORIGINS` | URL Pages + URL Space, dipisah koma |
+| Secret | `R2_ACCOUNT_ID` | dari tahap 2 |
+| Secret | `R2_ACCESS_KEY_ID` | dari tahap 2 |
+| Secret | `R2_SECRET_ACCESS_KEY` | dari tahap 2 |
+| Variable | `NER_BACKEND` | `transformers` |
+| Variable | `NER_MODEL_PATH` | `/srv/app/Model-20261025T155233Z-1-001/Model` |
+| Variable | `STORAGE_BACKEND` | **`local`** (fase 1; ganti `r2` di fase 2) |
+| Variable | `R2_BUCKET` | `sigap-media` |
+| Variable | `ASR_BACKEND` | `fake` |
+| Variable | `APP_ENV` | `production` |
+| Variable | `GEOCODER_BACKEND` | `fake` |
+| Variable | `WHATSAPP_PROVIDER` | `log` |
 
-- **Render free tidur setelah idle**. Request pertama setelah tidur bisa
-  20–30 detik. Untuk demo ini masih bisa diterima; kalau tidak, naik
-  `plan: starter`.
-- **ASR/NER tetap `fake`.** Whisper + Transformers tidak muat di RAM free.
-  Saat model siap, butuh plan berbayar atau backend ML terpisah.
-- Jangan ganti `ASR_BACKEND=whisper` sebelum naik plan — akan OOM di boot.
+### Fase storage: local dulu, R2 menyusul
+
+`build_storage()` dipanggil di **setiap** `POST /api/v1/public/reports`
+(`app/api/public.py`), termasuk laporan teks yang tidak butuh file.
+`R2Storage` melempar `ValueError` saat kredensial kosong, sehingga
+`STORAGE_BACKEND=r2` tanpa 3 Secret R2 akan membuat **semua** laporan publik
+berakhir 500 — bukan hanya unggahan audio.
+
+Urutan yang aman:
+
+1. **Fase 1 — `STORAGE_BACKEND=local`.** API login, lapor, peta, admin,
+   penugasan langsung terverifikasi tanpa menunggu R2. Risiko: file yang
+   tersimpan hilang bila container di-restart (disk container bersifat
+   sementara). Cukup untuk demo.
+2. **Fase 2 — setelah bucket + token jadi:** isi Secret `R2_ACCOUNT_ID`,
+   `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, lalu ganti variabel
+   `STORAGE_BACKEND` jadi `r2` dan redeploy.
+
+### Catatan penting
+
+- **Checkpoint model ikut di repo (GitHub dan Space) lewat Git LFS.**
+  Ukuran `best_model.pt` ±484 MB melebihi batas file GitHub 100 MB, jadi
+  `.gitattributes` menandai `*.pt` sebagai LFS. Folder `Model-*` sudah
+  dikeluarkan dari `.gitignore`. Tanpa file ini di repo, `COPY` di
+  Dockerfile gagal dengan `COPY failed: file not found` dan build Space
+  berhenti.
+- **Torch versi CPU.** `requirements.txt` menambah
+  `--extra-index-url https://download.pytorch.org/whl/cpu` dan memaksa
+  `torch==2.14.1+cpu`. Tanpa itu pip mengunduh wheel CUDA dari PyPI
+  (±2–3 GB) sehingga image melebihi batas build Space.
+- **CORS.** Frontend Pages memanggil API Space lintas domain, jadi
+  `ALLOWED_ORIGINS` harus memuat URL Pages produksi **dan** URL Space.
+- **Migrasi jalan otomatis saat start** (`alembic upgrade head` sebelum
+  uvicorn). Pastikan tabel Neon sudah sesuai — lihat catatan `stamp` di
+  Tahap 1.
+- **RAM.** Angka pasti ruang RAM perlu dibaca dari dashboard Space setelah
+  deploy; catat di `DEPLOY_PROGRESS.md`.
 
 ---
 
@@ -164,9 +222,8 @@ dari deployment ini.
 
 ## Yang belum dikerjakan di tahap ini (perlu putusan terpisah)
 
-- **NER/ASR asli.** Saat model siap, opsi: backend ML terpisah (Modal /
-  Replicate) atau upgrade Render + `NER_BACKEND=transformers`. Jalur ini
-  menyentuh `app/services/ner.py` dan `asr.py` yang saat ini `fake`.
+- **NER BERT-CRF** sudah diintegrasikan dan lulus uji lokal; checkpoint ±484 MB. Rencana: ikut di repository Space lewat git-lfs karena `Dockerfile` melakukan `COPY` folder model. Kalau image/riset build ternyata tidak layak di Spaces, opsi cadangan adalah menaruh checkpoint di R2 lalu mengunduhnya saat build, atau memakai layanan ber-RAM lebih besar — semua alternatif butuh persetujuan sebelum ganti stack.
+- **ASR asli** belum diimplementasikan; saat ini tetap `fake`.
 - **Presigned URL foto.** Frontend belum pernah menampilkan isi foto dari
   bucket; hanya menyimpan path. Perlu endpoint baru bila foto harus tampil.
 - **Supabase diganti Neon.** Seluruh `SupabaseStorage` masih ada di kode
@@ -181,7 +238,7 @@ dari deployment ini.
 
 ```
 Neon (migrasi + seed)  ─┐
-R2 (token)             ─┼→ Render (backend live)  ─→ Pages (frontend)  ─→ E2E check
+R2 (token)             ─┼→ HF Spaces (backend live) ─→ Pages (frontend) ─→ E2E check
 GitHub repo frontend    ─┘
 ```
 

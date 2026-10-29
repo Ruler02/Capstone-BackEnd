@@ -2,7 +2,10 @@
 
 from app.models.entitas import EntitasNer
 from app.models.laporan import Laporan
+from app.services.asr import FakeAsr
+from app.services.geocoder import FakeGeocoder
 from app.services.id import generate_report_id
+from app.services.ner import FakeNer
 from app.services.pipeline import run_pipeline
 
 
@@ -38,7 +41,14 @@ def test_text_pipeline_creates_four_entities(db_session):
     _make_laporan(db_session, "LPR-TEST001", "teks")
     notifier = RecordingNotifier()
 
-    run_pipeline(db_session, "LPR-TEST001", notifier=notifier)
+    run_pipeline(
+        db_session,
+        "LPR-TEST001",
+        notifier=notifier,
+        asr=FakeAsr(),
+        ner=FakeNer(),
+        geocoder=FakeGeocoder(),
+    )
 
     entities = (
         db_session.query(EntitasNer).filter_by(id_laporan="LPR-TEST001").all()
@@ -65,7 +75,14 @@ def test_audio_pipeline_fills_transcription(db_session, tmp_path):
     db_session.add(laporan)
     db_session.commit()
 
-    run_pipeline(db_session, "LPR-TEST002", notifier=RecordingNotifier())
+    run_pipeline(
+        db_session,
+        "LPR-TEST002",
+        notifier=RecordingNotifier(),
+        asr=FakeAsr(),
+        ner=FakeNer(),
+        geocoder=FakeGeocoder(),
+    )
 
     refreshed = db_session.get(Laporan, "LPR-TEST002")
     assert refreshed.konten_teks and "banjir" in refreshed.konten_teks
@@ -85,7 +102,14 @@ def test_pipeline_marks_failure_when_audio_missing(db_session):
     db_session.commit()
 
     try:
-        run_pipeline(db_session, "LPR-TEST003", notifier=RecordingNotifier())
+        run_pipeline(
+            db_session,
+            "LPR-TEST003",
+            notifier=RecordingNotifier(),
+            asr=FakeAsr(),
+            ner=FakeNer(),
+            geocoder=FakeGeocoder(),
+        )
     except FileNotFoundError:
         pass
 

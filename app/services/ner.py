@@ -8,6 +8,7 @@ from app.core.config import Settings
 ALLOWED_ENTITY_TYPES = {"Person", "Date", "Location", "Disaster"}
 
 
+
 @dataclass(frozen=True)
 class ExtractedEntity:
     jenis_entitas: str
@@ -31,27 +32,31 @@ class FakeNer:
 
 
 class TransformersNer:
+    """NER dengan checkpoint BERT-CRF milik tim.
+
+    Arsitektur model (BERT -> BiLSTM -> Linear -> CRF) bukan
+    `BertForTokenClassification` standar, jadi `pipeline()` bawaan tidak bisa
+    memakainya. Implementasi lengkapnya ada di `ner_bert_crf.py`.
+    """
+
     def __init__(self, model_path: str):
         try:
-            from transformers import pipeline
+            from app.services.ner_bert_crf import BertCrfNer
         except ImportError as exc:
-            raise RuntimeError("Install transformers untuk NER backend transformers") from exc
-        self._pipeline = pipeline("token-classification", model=model_path, aggregation_strategy="simple")
+            raise RuntimeError(
+                "Install torch dan transformers untuk NER backend transformers"
+            ) from exc
+        self._engine = BertCrfNer(model_path)
 
     def extract(self, text: str) -> list[ExtractedEntity]:
-        entities = []
-        for item in self._pipeline(text):
-            label = item["entity_group"].title()
-            if label in ALLOWED_ENTITY_TYPES:
-                entities.append(
-                    ExtractedEntity(
-                        jenis_entitas=label,
-                        nilai_teks=item["word"].strip(),
-                        char_start=item.get("start", 0),
-                        char_end=item.get("end", 0),
-                    )
-                )
-        return entities
+        return self._engine.extract(text)
+
+
+# Cache engine per path model. Memuat checkpoint BERT-CRF (±500 MB) butuh
+# beberapa detik, jadi model harus dibuat satu kali per proses, bukan satu
+# kali per laporan. LRU dengan satu slot sudah cukup karena aplikasi memakai
+# satu model NER.
+_ENGINE_CACHE: dict[str, TransformersNer] = {}
 
 
 def build_ner(settings: Settings) -> NerEngine:
@@ -60,5 +65,9 @@ def build_ner(settings: Settings) -> NerEngine:
     if settings.ner_backend == "transformers":
         if not settings.ner_model_path:
             raise ValueError("NER_MODEL_PATH wajib diisi untuk backend transformers")
-        return TransformersNer(settings.ner_model_path)
+        cached = _ENGINE_CACHE.get(settings.ner_model_path)
+        if cached is None:
+            cached = TransformersNer(settings.ner_model_path)
+            _ENGINE_CACHE[settings.ner_model_path] = cached
+        return cached
     raise ValueError(f"NER backend tidak dikenal: {settings.ner_backend}")

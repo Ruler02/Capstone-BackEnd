@@ -1,3 +1,13 @@
+---
+title: SIGAP BNPB API
+emoji: 🌊
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # SIGAP BNPB Backend
 
 Backend FastAPI untuk **Sistem Ekstraksi Entitas Audio Berita Bencana Alam** pada Capstone Project Sistem Informasi UNESA.
@@ -122,16 +132,30 @@ Semua endpoint selain health check memakai prefix `/api/v1`.
 
 Test memakai SQLite in-memory dan fake ASR/NER/geocoder/notifier, sehingga tidak membutuhkan API key, GPU, atau layanan eksternal. State machine diuji untuk mencegah eskalasi ganda, akses lintas-unit, transisi status ilegal, dan penutupan tanpa bukti.
 
-## Supabase + Render
+## Deploy (Neon + Cloudflare R2 + Hugging Face Spaces + Cloudflare Pages)
 
-1. Buat project Supabase dan ambil connection string PostgreSQL.
-2. Buat bucket Storage untuk audio/foto (mis. `media`).
-3. Buat Web Service Render dari repository GitHub ini; Render membaca `render.yaml` dan `Dockerfile`.
-4. Set `DATABASE_URL`, `GOOGLE_MAPS_API_KEY`, `ALLOWED_ORIGINS`, dan kredensial lain sebagai environment variables di Render.
+1. Buat database Neon, ambil connection string **pooled** dengan
+   `postgresql+psycopg://...` dan `sslmode=require`. Migrasi sudah
+   dijalankan ke Neon.
+2. Buat bucket R2 `sigap-media` + API token Object Read & Write.
+3. Buat **Hugging Face Space** bertipe **Docker** dari repository ini;
+   `README.md` sudah punya frontmatter `sdk: docker` dan `app_port: 7860`.
+4. Isi Space **Secrets**: `DATABASE_URL`, `SECRET_KEY`, `ALLOWED_ORIGINS`,
+   `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
+   Isi Space **Variables**: `NER_BACKEND=transformers`,
+   `NER_MODEL_PATH=/srv/app/Model-20261025T155233Z-1-001/Model`,
+   `STORAGE_BACKEND=r2`, `R2_BUCKET=sigap-media`, `ASR_BACKEND=fake`,
+   `APP_ENV=production`.
 5. `alembic upgrade head` dijalankan saat container start sebelum Uvicorn.
-6. Arahkan frontend yang di-deploy ke `https://<domain-api>/api/v1`.
+6. Arahkan frontend Pages ke `https://<space-url>.hf.space/api/v1` lewat
+   `VITE_API_URL`, dan masukkan URL Pages itu ke `ALLOWED_ORIGINS`.
 
-Disk container bersifat ephemeral. Untuk demo lokal gunakan `STORAGE_BACKEND=local`; untuk deployment gunakan storage persisten Supabase.
+Checkpoint model ±484 MB **tidak** ikut GitHub (`.gitignore`), tetapi
+wajib ada di repository Space karena `Dockerfile` melakukan `COPY` folder
+model. Push model lewat git-lfs; tanpa itu build Space gagal.
+
+Disk container bersifat ephemeral. Untuk demo lokal gunakan
+`STORAGE_BACKEND=local`; untuk deployment gunakan `STORAGE_BACKEND=r2`.
 
 ## Struktur kode
 

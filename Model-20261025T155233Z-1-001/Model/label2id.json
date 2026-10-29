@@ -1,0 +1,13 @@
+{
+  "O": 0,
+  "B-DATE": 1,
+  "B-DIS": 2,
+  "B-LOC": 3,
+  "B-ORG": 4,
+  "B-PER": 5,
+  "I-DATE": 6,
+  "I-DIS": 7,
+  "I-LOC": 8,
+  "I-ORG": 9,
+  "I-PER": 10
+}

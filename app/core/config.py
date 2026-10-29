@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     asr_backend: str = "fake"
     ner_backend: str = "fake"
-    ner_model_path: str = ""
+    ner_model_path: str = "Model-20261025T155233Z-1-001/Model"
     geocoder_backend: str = "fake"
     google_maps_api_key: str = ""
 

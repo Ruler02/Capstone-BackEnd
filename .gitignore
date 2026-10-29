@@ -1,4 +1,6 @@
 .env
+# Kredensial Neon untuk pemeriksaan lokal. Jangan pernah di-commit.
+.neon_url
 .venv/
 __pycache__/
 *.pyc
@@ -6,3 +8,8 @@ __pycache__/
 media/
 .pytest_cache/
 docs/
+
+# Artefak zip model (duplikat dari folder Model-*) dan berkas kerja sementara.
+*.zip
+_pt.txt
+_pytest_out.txt
